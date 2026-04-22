@@ -79,6 +79,20 @@ int32_t dmInitDnode(SDnode *pDnode) {
   }
 
   if ((code = dmInitModule(pDnode)) != 0) {
+    // goto _OVER;
+  }
+
+  if (dmInitMsgHandle(pDnode) != 0) {
+    dError("failed to init msg handles since %s", terrstr());
+    goto _OVER;
+  }
+
+  if (dmInitServer(pDnode) != 0) {
+    dError("failed to init transport since %s", terrstr());
+    goto _OVER;
+  }
+
+  if (dmInitClient(pDnode) != 0) {
     goto _OVER;
   }
 
