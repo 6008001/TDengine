@@ -73,14 +73,29 @@ int32_t dmInitDnode(SDnode *pDnode) {
     pWrapper->required = dmRequireNode(pDnode, pWrapper);
   }
 
+    if (dmInitMsgHandle(pDnode) != 0) {
+      dError("failed to init msg handles since %s", terrstr());
+      goto _OVER;
+    }
+
   code = dmCheckRunning(tsDataDir, &pDnode->lockfile);
   if (code != 0) {
     goto _OVER;
   }
 
-  if ((code = dmInitModule(pDnode)) != 0) {
-    goto _OVER;
-  }
+     if (dmInitServer(pDnode) != 0) {
+       dError("failed to init transport since %s", terrstr());
+       goto _OVER;
+     }
+
+     if (dmInitClient(pDnode) != 0) {
+       goto _OVER;
+     }
+
+//  if ((code = dmInitModule(pDnode)) != 0) {
+//    dError("failed to create dnode since dmInitModule");
+//    goto _OVER;
+//  }
 
   indexInit(tsNumOfCommitThreads);
   streamMetaInit();

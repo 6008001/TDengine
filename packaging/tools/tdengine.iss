@@ -15,7 +15,7 @@
 #define MyAppExeName "\*.exe"
 #define MyAppTaosExeName "\taos.bat"
 #define MyAppTaosdemoExeName "\taosBenchmark.exe"
-#define MyAppDLLName "\driver\*.dll"
+#define MyAppDLLName "\*.dll"
 ;#define MyAppVersion "3.0"
 ;#define MyAppInstallName "TDengine"
 [Setup]
@@ -47,7 +47,7 @@ Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
 ;Name: "english"; MessagesFile: "compiler:Languages\English.isl"
 
 [Files]
-;Source: {#MyAppSourceDir}{#MyAppAllFile}; DestDir: "{app}"; Flags: igNoreversion recursesubdirs createallsubdirs 
+;Source: {#MyAppSourceDir}{#MyAppAllFile}; DestDir: "{app}"; Flags: igNoreversion recursesubdirs createallsubdirs
 Source: taos.bat; DestDir: "{app}\include"; Flags: igNoreversion;
 ;Source: taosdemo.png; DestDir: "{app}\include"; Flags: igNoreversion;
 ;Source: taosShell.png; DestDir: "{app}\include"; Flags: igNoreversion;
@@ -104,22 +104,22 @@ end;
 
 function DeleteOdbcDsnRegistry: Boolean;
 begin
-  RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\ODBC\ODBC.INI\TAOS_ODBC_DSN');  
+  RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\ODBC\ODBC.INI\TAOS_ODBC_DSN');
   RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\ODBC\ODBC.INI\TAOS_ODBC_WS_DSN')
 
-  RegDeleteValue(HKCU, 'SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources', 'TAOS_ODBC_DSN'); 
-  RegDeleteValue(HKCU, 'SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources', 'TAOS_ODBC_WS_DSN'); 
+  RegDeleteValue(HKCU, 'SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources', 'TAOS_ODBC_DSN');
+  RegDeleteValue(HKCU, 'SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources', 'TAOS_ODBC_WS_DSN');
 
   Result := True;
 end;
 
 function DeleteOdbcDriverRegistry: Boolean;
 begin
-  // Delete 64-bit ODBC driver registry 
-  RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\ODBC\ODBCINST.INI\TAOS_ODBC_DRIVER');    
+  // Delete 64-bit ODBC driver registry
+  RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\ODBC\ODBCINST.INI\TAOS_ODBC_DRIVER');
   RegDeleteValue(HKLM64, 'SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers', 'TAOS_ODBC_DRIVER');
 
-  // Delete 32-bit ODBC driver registry 
+  // Delete 32-bit ODBC driver registry
   RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\Wow6432Node\ODBC\ODBCINST.INI\TAOS_ODBC_DRIVER');
   RegDeleteValue(HKLM64, 'SOFTWARE\Wow6432Node\ODBC\ODBCINST.INI\ODBC Drivers', 'TAOS_ODBC_DRIVER');
 
@@ -134,7 +134,7 @@ begin
 end;
 
 [UninstallDelete]
-Name: {app}\driver; Type: filesandordirs 
+Name: {app}\driver; Type: filesandordirs
 Name: {app}\connector; Type: filesandordirs
 Name: {app}\examples; Type: filesandordirs
 Name: {app}\include; Type: filesandordirs
@@ -143,11 +143,11 @@ Name: {app}\include; Type: filesandordirs
 Name: "desktopicon";Description: "{cm:CreateDesktopIcon}"; GroupDescription:"{cm:AdditionalIcons}"; Flags: checkablealone
 
 [Icons]
-Name:"{group}\Taos Shell"; Filename: "{app}\include\{#MyAppTaosExeName}" ; Parameters: "taos.exe" ; IconFilename: "{app}\include\{#MyAppIco}" 
-Name:"{group}\Open {#CusName} Directory"; Filename: "{app}\" 
-Name:"{group}\Taosdemo"; Filename: "{app}\include\{#MyAppTaosExeName}" ; Parameters: "taosdemo.exe" ; IconFilename: "{app}\include\{#MyAppIco}" 
-Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}" ; IconFilename: "{app}\include\{#MyAppIco}" 
-Name:"{commondesktop}\Taos Shell"; Filename: "{app}\include\{#MyAppTaosExeName}" ; Parameters: "taos.exe" ; Tasks: desktopicon; WorkingDir: "{app}" ; IconFilename: "{app}\include\{#MyAppIco}" 
+Name:"{group}\Taos Shell"; Filename: "{app}\include\{#MyAppTaosExeName}" ; Parameters: "taos.exe" ; IconFilename: "{app}\include\{#MyAppIco}"
+Name:"{group}\Open {#CusName} Directory"; Filename: "{app}\"
+Name:"{group}\Taosdemo"; Filename: "{app}\include\{#MyAppTaosExeName}" ; Parameters: "taosdemo.exe" ; IconFilename: "{app}\include\{#MyAppIco}"
+Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}" ; IconFilename: "{app}\include\{#MyAppIco}"
+Name:"{commondesktop}\Taos Shell"; Filename: "{app}\include\{#MyAppTaosExeName}" ; Parameters: "taos.exe" ; Tasks: desktopicon; WorkingDir: "{app}" ; IconFilename: "{app}\include\{#MyAppIco}"
 
 
 [Messages]
