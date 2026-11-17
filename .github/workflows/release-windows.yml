@@ -4,6 +4,11 @@ name: Release Windows packages
 # win-branch MSVC fixes and publish them:
 #   * manually via workflow_dispatch (artifacts only)
 #   * automatically on tags matching win-v* / v* (artifacts + GitHub Release)
+#
+# Package contents: taosd, taos, taosBenchmark, taosdump, taosudf, taosmqtt,
+# taoskeeper (Go, built from tools/keeper), taosadapter (Go+CGO, built from
+# the taosdata/taosadapter 3.0 branch) and the Python UDF plugin
+# (BUILD_PYUDF=ON, downloads a CPython SDK at build time).
 
 on:
   workflow_dispatch:
@@ -26,12 +31,33 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 350
     steps:
-      - name: Checkout
+      - name: Checkout TDengine (win branch)
         uses: actions/checkout@v4
 
-      - name: Install Inno Setup
+      - name: Checkout taosadapter (3.0 branch)
+        uses: actions/checkout@v4
+        with:
+          repository: taosdata/taosadapter
+          ref: 3.0
+          path: taosadapter-src
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install Inno Setup and MinGW (CGO for taosadapter)
+        id: mingw
         shell: pwsh
-        run: choco install innosetup -y --no-progress
+        run: |
+          choco install innosetup mingw -y --no-progress
+          $mingw = "$env:ChocolateyInstall\lib\mingw\tools\install\mingw64\bin"
+          if (-not (Test-Path "$mingw\gcc.exe")) {
+            $mingw = (Get-ChildItem "$env:ChocolateyInstall\lib\mingw\tools\install" -Directory |
+                      Select-Object -First 1).FullName + '\mingw64\bin'
+          }
+          if (-not (Test-Path "$mingw\gcc.exe")) { throw 'mingw gcc.exe not found' }
+          "mingw=$mingw" >> $env:GITHUB_OUTPUT
 
       - name: Locate Windows SDK um\x64 lib dir
         id: sdk
@@ -50,14 +76,56 @@ jobs:
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
             -DBUILD_TOOLS=ON `
-            -DBUILD_PYUDF=OFF `
+            -DBUILD_PYUDF=ON `
             -DBUILD_VER_OSTYPE=windows64 `
             -DSYSTEM_SYSTEM_PATH="${{ steps.sdk.outputs.sdkdir }}" `
             -DCMAKE_LIBRARY_PATH="${{ steps.sdk.outputs.sdkdir }}"
 
-      - name: Build
+      - name: Build TDengine
         shell: pwsh
         run: cmake --build build --config Release --parallel
+
+      - name: Detect package version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ github.event.inputs.version }}'
+          if (-not $v) {
+            $out = (& build\build\bin\Release\taos.exe -V 2>$null | Out-String)
+            if ($out -match 'version:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)') {
+              $v = $Matches[1]
+            }
+          }
+          if (-not $v) { throw 'Unable to determine package version' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Build taoskeeper (Go)
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          Push-Location tools\keeper
+          go build -ldflags "-X github.com/taosdata/taoskeeper/version.Version=$v" `
+            -o ..\..\build\build\bin\taoskeeper.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'taoskeeper build failed' }
+          Pop-Location
+          & build\build\bin\taoskeeper.exe -V
+
+      - name: Build taosadapter (Go + CGO, links taos.dll)
+        shell: pwsh
+        run: |
+          $mingw = '${{ steps.mingw.outputs.mingw }}'
+          $env:CGO_ENABLED = '1'
+          $env:CC = "$mingw\gcc.exe"
+          $env:CGO_CFLAGS = "-I$PWD\include\client"
+          $env:CGO_LDFLAGS = "-L$PWD\build\build\bin -ltaos -lws2_32"
+          Push-Location taosadapter-src
+          go build -o ..\build\build\bin\taosadapter.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'taosadapter build failed' }
+          Pop-Location
+          # stage default config where make_install.bat expects it
+          New-Item -ItemType Directory -Force -Path build\test\cfg | Out-Null
+          Copy-Item taosadapter-src\example\config\taosadapter.toml build\test\cfg\taosadapter.toml
+          & build\build\bin\taosadapter.exe -V
 
       - name: Flatten outputs for make_install.bat (single-config layout)
         shell: pwsh
@@ -68,20 +136,6 @@ jobs:
       - name: Install to C:\TDengine
         shell: pwsh
         run: cmake --install build
-
-      - name: Detect package version
-        id: ver
-        shell: pwsh
-        run: |
-          $v = '${{ github.event.inputs.version }}'
-          if (-not $v) {
-            $out = (& build\build\bin\taos.exe -V 2>$null | Out-String)
-            if ($out -match 'version:\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)') {
-              $v = $Matches[1]
-            }
-          }
-          if (-not $v) { throw 'Unable to determine package version' }
-          "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Package with Inno Setup
         shell: pwsh
@@ -101,7 +155,7 @@ jobs:
           & $iscc /DMyAppInstallName="TDengine-client-$v-Windows-x64" `
                   /DMyAppVersion="$v" `
                   /DCusName=TDengine /DCusPrompt=taos `
-                  /DMyAppExcludeSource='taosd.exe' `
+                  /DMyAppExcludeSource="taosd.exe,taosadapter.exe,taoskeeper.exe" `
                   tdengine.iss "/O$PWD\..\..\release"
           if ($LASTEXITCODE -ne 0) { throw 'client package failed' }
           Pop-Location
@@ -114,6 +168,13 @@ jobs:
           $ver = & C:\TDengine\taosd.exe -V 2>&1 | Out-String
           if ($ver -notmatch 'taosd version') { throw "taosd -V failed: $ver" }
           Write-Host $ver
+          foreach ($tool in 'taosadapter.exe', 'taoskeeper.exe', 'taosBenchmark.exe', 'taosdump.exe') {
+            if (-not (Test-Path "C:\TDengine\$tool")) { throw "missing package component: $tool" }
+          }
+          $av = & C:\TDengine\taosadapter.exe -V 2>&1 | Out-String
+          Write-Host $av
+          $kv = & C:\TDengine\taoskeeper.exe -V 2>&1 | Out-String
+          Write-Host $kv
           $proc = Start-Process -FilePath 'C:\TDengine\taosd.exe' -PassThru -WindowStyle Hidden
           $ready = $false
           for ($i = 0; $i -lt 60; $i++) {
