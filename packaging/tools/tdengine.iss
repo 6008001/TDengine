@@ -66,10 +66,14 @@ Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
 ;Name: "english"; MessagesFile: "compiler:Languages\English.isl"
 
 [Files]
+#ifexist "vc_redist_files.issinc"
+#include "vc_redist_files.issinc"
+#else
 #ifexist "..\..\..\taos-internal\packaging\vc_redist_files.issinc"
 #include "..\..\..\taos-internal\packaging\vc_redist_files.issinc"
 #else
 #include "..\..\..\enterprise\packaging\vc_redist_files.issinc"
+#endif
 #endif
 ;Source: {#MyAppSourceDir}{#MyAppAllFile}; DestDir: "{app}"; Flags: igNoreversion recursesubdirs createallsubdirs 
 Source: taos.bat; DestDir: "{app}\include"; Flags: igNoreversion;
@@ -80,7 +84,9 @@ Source: {#MyAppSourceDir}{#MyAppDLLName}; DestDir: "{win}\System32"; Flags: igNo
 Source: {#MyAppSourceDir}{#MyAppCfgName}; DestDir: "{app}\cfg"; Flags: igNoreversion recursesubdirs createallsubdirs onlyifdoesntexist uninsneveruninstall
 Source: {#MyAppSourceDir}{#MyAppDriverName}; DestDir: "{app}\driver"; Flags: igNoreversion recursesubdirs createallsubdirs
 Source: {#MyAppSourceDir}{#MyAppDLLName}; DestDir: "{app}\driver"; Flags: igNoreversion
-Source: {#MyAppSourceDir}\taos_odbc\*; DestDir: "{app}\taos_odbc"; Flags: igNoreversion recursesubdirs createallsubdirs
+; ODBC driver files are only staged when TD_BUILD_WITH_ODBC=ON; community
+; Windows builds do not ship them, so skip the taos_odbc payload.
+;Source: {#MyAppSourceDir}\taos_odbc\*; DestDir: "{app}\taos_odbc"; Flags: igNoreversion recursesubdirs createallsubdirs
 Source: {#MyAppSourceDir}\*.dll; DestDir: "{app}"; Flags: igNoreversion recursesubdirs createallsubdirs
 ;Source: {#MyAppSourceDir}{#MyAppConnectorName}; DestDir: "{app}\connector"; Flags: igNoreversion recursesubdirs createallsubdirs
 ;Source: {#MyAppSourceDir}{#MyAppExamplesName}; DestDir: "{app}\examples"; Flags: igNoreversion recursesubdirs createallsubdirs
@@ -93,8 +99,10 @@ Source: {#MyAppSourceDir}\taosdump.exe; DestDir: "{app}"; DestName: "{#CusPrompt
 
 
 [run]
-Filename: "C:\Windows\System32\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x64"; Flags: runhidden; StatusMsg: "Configuring ODBC x64"
-Filename: "C:\Windows\SysWOW64\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x86"; Flags: runhidden; StatusMsg: "Configuring ODBC x86"
+; ODBC registration runs only when the taos_odbc payload is present (see the
+; commented [Files] entry above); community builds without ODBC skip it.
+;Filename: "C:\Windows\System32\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x64"; Flags: runhidden; StatusMsg: "Configuring ODBC x64"
+;Filename: "C:\Windows\SysWOW64\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x86"; Flags: runhidden; StatusMsg: "Configuring ODBC x86"
 
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \
@@ -102,10 +110,14 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
     Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Code]
+#ifexist "vc_redist_code.issinc"
+#include "vc_redist_code.issinc"
+#else
 #ifexist "..\..\..\taos-internal\packaging\vc_redist_code.issinc"
 #include "..\..\..\taos-internal\packaging\vc_redist_code.issinc"
 #else
 #include "..\..\..\enterprise\packaging\vc_redist_code.issinc"
+#endif
 #endif
 
 function InitializeSetup(): Boolean;

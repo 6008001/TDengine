@@ -1,0 +1,7 @@
+// Community Windows packages statically link the CRT (/MT), so no
+// VC++ Redistributable check is needed at install time.
+[Code]
+function EnsureVCRuntime(): Boolean;
+begin
+  Result := True;
+end;

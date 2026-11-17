@@ -1724,6 +1724,8 @@ if(TD_TAOS_TOOLS)
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.src.CMakeLists.txt.in        ${ext_avro_source}/lang/c/src/CMakeLists.txt
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.src.codec.c.in               ${ext_avro_source}/lang/c/src/codec.c
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.src.schema.c.in              ${ext_avro_source}/lang/c/src/schema.c
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.src.generic.c.in             ${ext_avro_source}/lang/c/src/generic.c
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.src.string.c.in              ${ext_avro_source}/lang/c/src/string.c
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.tests.CMakeLists.txt.in      ${ext_avro_source}/lang/c/tests/CMakeLists.txt
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${TD_SUPPORT_DIR}/in/avro.lang.c.tests.test_avro_data.c.in    ${ext_avro_source}/lang/c/tests/test_avro_data.c
         BUILD_COMMAND
@@ -3114,14 +3116,18 @@ set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL \"\" FORCE)
         else()
             # taosdump's static build needs the newer MSVC C++17 and warning
             # workarounds used by Arrow 19.0.1 and its bundled dependencies.
+            # NOTE: no /FIarray here — CMake's VS generator merges CXX flags into
+            # the project-wide ForcedIncludeFiles, which would force C++ STL
+            # headers into the vendored C sources (musl/uriparser) and fail with
+            # STL1003.
             list(APPEND ARROW_EXTRA_CMAKE_ARGS
                 "-DCMAKE_CXX_STANDARD:STRING=17"
                 "-DCMAKE_CXX_STANDARD_REQUIRED:BOOL=ON"
                 "-DCMAKE_CXX_EXTENSIONS:BOOL=OFF"
                 "-DCMAKE_CXX_FLAGS:STRING=/Zc:__cplusplus"
-                "-DCMAKE_CXX_FLAGS_DEBUG:STRING=/Zc:__cplusplus /FIarray /Gy /Gw /wd4146 /wd4996 /wd4244 /wd4456 /wd4459 /wd4828 /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING /Zi /Ob0 /Od /RTC1"
-                "-DCMAKE_CXX_FLAGS_RELEASE:STRING=/Zc:__cplusplus /FIarray /O1 /Gy /Gw /wd4146 /wd4996 /wd4244 /wd4456 /wd4459 /wd4828 /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING /Ob2 /DNDEBUG"
-                "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=/Zc:__cplusplus /FIarray /O1 /Gy /Gw /wd4146 /wd4996 /wd4244 /wd4456 /wd4459 /wd4828 /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING /Zi /Ob1 /DNDEBUG"
+                "-DCMAKE_CXX_FLAGS_DEBUG:STRING=/Zc:__cplusplus /Gy /Gw /wd4146 /wd4996 /wd4244 /wd4456 /wd4459 /wd4828 /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING /Zi /Ob0 /Od /RTC1"
+                "-DCMAKE_CXX_FLAGS_RELEASE:STRING=/Zc:__cplusplus /O1 /Gy /Gw /wd4146 /wd4996 /wd4244 /wd4456 /wd4459 /wd4828 /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING /Ob2 /DNDEBUG"
+                "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=/Zc:__cplusplus /O1 /Gy /Gw /wd4146 /wd4996 /wd4244 /wd4456 /wd4459 /wd4828 /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING /Zi /Ob1 /DNDEBUG"
                 "-DCMAKE_C_FLAGS_DEBUG:STRING=/Zi /Od /RTC1"
                 "-DCMAKE_C_FLAGS_RELEASE:STRING=/O1 /DNDEBUG"
                 "-DCMAKE_C_FLAGS_RELWITHDEBINFO:STRING=/Zi /O1 /DNDEBUG"
@@ -3161,6 +3167,14 @@ set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL \"\" FORCE)
             -P "${CMAKE_CURRENT_LIST_DIR}/arrow-absl-gcc13-stdint-fix.cmake"
     )
 
+    # Always fix Arrow's dead boostorg.jfrog.io Boost URL (public-deps builds
+    # have no mirror rewrite to fall back on).
+    list(APPEND _arrow_patch_commands
+        COMMAND "${CMAKE_COMMAND}"
+            -DARROW_SOURCE_DIR=<SOURCE_DIR>
+            -P "${CMAKE_CURRENT_LIST_DIR}/arrow-boost-url-fix.cmake"
+    )
+
     if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
         list(APPEND _arrow_patch_commands
             COMMAND "${CMAKE_COMMAND}"
@@ -3188,6 +3202,18 @@ set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL \"\" FORCE)
     if(CMAKE_GENERATOR_TOOLSET)
         list(APPEND _arrow_generator_args -T "${CMAKE_GENERATOR_TOOLSET}")
     endif()
+
+    # Boost repackaged boost_1_81_0.tar.gz when moving from jfrog to
+    # archives.boost.io (identical sources, different bytes). Arrow 19.0.1
+    # pins the old jfrog SHA256 in cpp/thirdparty/versions.txt, so refresh
+    # that file from our tree after extraction.
+    list(APPEND _arrow_patch_commands
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${TD_SUPPORT_DIR}/in/arrow.cpp.thirdparty.versions.txt.in"
+            "<SOURCE_DIR>/cpp/thirdparty/versions.txt"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${TD_SUPPORT_DIR}/in/arrow.cpp.src.parquet.size_statistics.cc.in"
+            "<SOURCE_DIR>/cpp/src/parquet/size_statistics.cc")
 
     if(_arrow_patch_commands)
         set(_arrow_patch_arg PATCH_COMMAND ${_arrow_patch_commands})

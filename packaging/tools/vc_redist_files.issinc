@@ -1,0 +1,4 @@
+; Community Windows packages statically link the CRT (/MT), so the
+; installer carries no VC++ Redistributable payload. This include exists so
+; tdengine.iss preprocesses without the internal taos-internal/enterprise
+; trees; add Source: lines here if dynamic CRT is ever adopted.
