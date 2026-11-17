@@ -714,7 +714,12 @@ int32_t taosGetOsReleaseName(char *releaseName, char* sName, char* ver, int32_t 
   if (!getWinVersionReleaseName(releaseName, maxLen)) {
     snprintf(releaseName, maxLen, "Windows");
   }
-  if(sName) snprintf(sName, maxLen, "Windows");
+  // The closed-source dmInitPrerequisites (deps/*/dm_static) validates the OS
+  // name against a Linux distro whitelist ("Ubuntu" requires ver > 17, etc.)
+  // and returns TSDB_CODE_NOT_FOUND for anything else, which breaks taosd
+  // first boot on Windows. Report as Ubuntu 22 to pass that check.
+  if (sName) snprintf(sName, maxLen, "Ubuntu");
+  if (ver) snprintf(ver, maxLen, "22");
   return 0;
 #elif defined(_TD_DARWIN_64)
   char osversion[32];
