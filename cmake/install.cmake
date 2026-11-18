@@ -47,8 +47,14 @@ ELSEIF (TD_WINDOWS)
   # cmake -E env runs the batch file directly (no cmd.exe wrapper), so the
   # script path must use native separators.
   FILE(TO_NATIVE_PATH "${TD_MAKE_INSTALL_SH}" TD_MAKE_INSTALL_SH_NATIVE)
+  # INSTALL(CODE ...) text is parsed again when cmake_install.cmake runs, so a
+  # literal backslash from TO_NATIVE_PATH (e.g. the "\a" in D:\a\...) would be
+  # read as an escape sequence and abort with "Invalid character escape".
+  # Double them so the generated script carries a single separator.
+  STRING(REPLACE "\\" "\\\\" TD_MAKE_INSTALL_SH_NATIVE
+         "${TD_MAKE_INSTALL_SH_NATIVE}")
   INSTALL(CODE "MESSAGE(\"make install script: ${TD_MAKE_INSTALL_SH}\")")
-  INSTALL(CODE "execute_process(COMMAND \"${CMAKE_COMMAND}\" -E env TD_INSTALL_FQ_RUNTIME_LIBS=${INSTALL_FQ_RUNTIME_LIBS} TD_BUILD_WITH_ODBC=${BUILD_WITH_ODBC} \"${TD_MAKE_INSTALL_SH_NATIVE}\" :needAdmin \"${TD_SOURCE_DIR}\" \"${CMAKE_BINARY_DIR}\" Windows ${BUILD_VER_NUMBER})")
+  INSTALL(CODE "execute_process(COMMAND \"${CMAKE_COMMAND}\" -E env TD_INSTALL_FQ_RUNTIME_LIBS=${INSTALL_FQ_RUNTIME_LIBS} TD_BUILD_WITH_ODBC=${BUILD_WITH_ODBC} \"${TD_MAKE_INSTALL_SH_NATIVE}\" :needAdmin \"${TD_SOURCE_DIR}\" \"${CMAKE_BINARY_DIR}\" Windows ${BUILD_VER_NUMBER} RESULT_VARIABLE _install_result)\nIF(NOT _install_result EQUAL 0)\n  MESSAGE(FATAL_ERROR \"make_install.bat failed: \${_install_result}\")\nENDIF()")
 ELSEIF (TD_DARWIN)
   SET(TD_MAKE_INSTALL_SH "${TD_SOURCE_DIR}/packaging/tools/make_install.sh")
   INSTALL(CODE "MESSAGE(\"make install script: ${TD_MAKE_INSTALL_SH}\")")
