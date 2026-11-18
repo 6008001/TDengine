@@ -180,6 +180,13 @@ jobs:
           $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' +0000'
           $env:CGO_ENABLED = '1'
           $env:CC = "$mingw\gcc.exe"
+          # driver/native/*.c include <taos.h> but the package carries no
+          # `#cgo CFLAGS`: upstream only builds it on the branches where taos.h
+          # sits in the default include path (/usr/include on Linux). On Windows
+          # the header lives in the install tree, so point cgo at it explicitly.
+          # CGO_CFLAGS is prepended to every package's flags, which is what makes
+          # driver/native compile without patching the adapter sources.
+          $env:CGO_CFLAGS = "-IC:/TDengine/include"
           # The driver is loaded by path at run time, in the same order the
           # dispatcher uses; PATH still needs the install tree so the smoke test
           # can find taosnative.dll next to the adapter.
