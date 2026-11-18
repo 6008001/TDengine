@@ -103,7 +103,13 @@ jobs:
 
       - name: Build TDengine
         shell: pwsh
-        run: cmake --build build --config Release --parallel
+        run: |
+          # Runner CMake is 4.x which dropped compatibility with
+          # cmake_minimum_required < 3.5; several vendored externals
+          # (win-iconv, pthread-win32, ...) still declare 2.x/3.0. The env
+          # var is inherited by every ExternalProject sub-configure.
+          $env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'
+          cmake --build build --config Release --parallel
 
       - name: Detect package version
         id: ver
