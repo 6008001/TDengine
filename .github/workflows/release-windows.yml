@@ -6,9 +6,9 @@ name: Release Windows packages
 #   * automatically on tags matching win-v* / v* (artifacts + GitHub Release)
 #
 # Package contents: taosd, taos, taosBenchmark, taosdump, taosudf, taosmqtt,
-# taoskeeper (Go, built from tools/keeper), taosadapter (Go+CGO, built from
-# the taosdata/taosadapter 3.0 branch) and the Python UDF plugin
-# (BUILD_PYUDF=ON, downloads a CPython SDK at build time).
+# taosadapter (Go+CGO, built from the taosdata/taosadapter main branch) and the
+# Python UDF plugin (BUILD_PYUDF=ON, downloads a CPython SDK at build time).
+# taoskeeper is not built or packaged.
 
 on:
   workflow_dispatch:
@@ -34,17 +34,20 @@ jobs:
       - name: Checkout TDengine (win branch)
         uses: actions/checkout@v4
 
-      - name: Checkout taosadapter (3.0 branch)
+      - name: Checkout taosadapter (main branch)
         uses: actions/checkout@v4
         with:
           repository: taosdata/taosadapter
-          ref: '3.0'
+          ref: 'main'
           path: taosadapter-src
 
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          # taosadapter main requires go >= 1.26.0. Pin a concrete version
+          # instead of 'stable' so a Go release cannot break the build silently.
+          go-version: '1.26'
+          check-latest: true
 
       - name: Install Inno Setup and MinGW (CGO for taosadapter)
         id: mingw
@@ -143,24 +146,12 @@ jobs:
           if (-not $v) { throw 'Unable to determine package version' }
           "version=$v" >> $env:GITHUB_OUTPUT
 
-      - name: Build taoskeeper (Go)
-        shell: pwsh
-        run: |
-          $v = '${{ steps.ver.outputs.version }}'
-          Push-Location tools\keeper
-          go build -ldflags "-X github.com/taosdata/taoskeeper/version.Version=$v" `
-            -o ..\..\build\build\bin\taoskeeper.exe .
-          if ($LASTEXITCODE -ne 0) { throw 'taoskeeper build failed' }
-          Pop-Location
-          & build\build\bin\taoskeeper.exe -V
-
       # make_install.bat (run by `cmake --install`) picks the component configs
       # up from <build>/test/cfg, so they must be staged before the install step.
       - name: Stage component configs
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path build\test\cfg | Out-Null
-          Copy-Item tools\keeper\config\taoskeeper.toml build\test\cfg\taoskeeper.toml -Force
           Copy-Item taosadapter-src\example\config\taosadapter.toml build\test\cfg\taosadapter.toml -Force
 
       - name: Flatten outputs for make_install.bat (single-config layout)
@@ -173,19 +164,25 @@ jobs:
         shell: pwsh
         run: cmake --install build --config Release
 
-      # taosadapter's cgo directives hardcode C:/TDengine/{include,driver}
-      # (the installed tree), so it can only be built after the install step.
-      - name: Build taosadapter (Go + CGO, links taosnative)
+      # taosadapter's cgo directives hardcode C:/TDengine/include (the installed
+      # tree), so it can only be built after the install step. Since main it no
+      # longer links taosnative: driver/native dlopen()s the client driver at run
+      # time, so only <taos.h> is needed at build time.
+      - name: Build taosadapter (Go + CGO)
         shell: pwsh
         run: |
           $mingw = '${{ steps.mingw.outputs.mingw }}'
           $v = '${{ steps.ver.outputs.version }}'
-          $commit = '${{ github.sha }}'
+          # Stamp the taosadapter commit, not github.sha: the latter is the
+          # TDengine commit that triggered this run and means nothing to the
+          # adapter. Read it from the checkout so it tracks the pinned ref.
+          $commit = (& git -C taosadapter-src rev-parse HEAD).Trim()
           $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' +0000'
           $env:CGO_ENABLED = '1'
           $env:CC = "$mingw\gcc.exe"
-          # The package's own #cgo windows lines point at C:/TDengine already;
-          # keep PATH on the installed tree so the loader finds taosnative.dll.
+          # The driver is loaded by path at run time, in the same order the
+          # dispatcher uses; PATH still needs the install tree so the smoke test
+          # can find taosnative.dll next to the adapter.
           $env:Path = "C:\TDengine;C:\TDengine\driver;$env:Path"
           Push-Location taosadapter-src
           # Without these -X flags taosadapter reports its source defaults
@@ -219,7 +216,7 @@ jobs:
           & $iscc /DMyAppInstallName="TDengine-client-$v-Windows-x64" `
                   /DMyAppVersion="$v" `
                   /DCusName=TDengine /DCusPrompt=taos `
-                  /DMyAppExcludeSource="taosd.exe,taosadapter.exe,taoskeeper.exe" `
+                  /DMyAppExcludeSource="taosd.exe,taosadapter.exe" `
                   tdengine.iss "/O$PWD\..\..\release"
           if ($LASTEXITCODE -ne 0) { throw 'client package failed' }
           Pop-Location
@@ -232,13 +229,11 @@ jobs:
           $ver = & C:\TDengine\taosd.exe -V 2>&1 | Out-String
           if ($ver -notmatch 'taosd version') { throw "taosd -V failed: $ver" }
           Write-Host $ver
-          foreach ($tool in 'taosadapter.exe', 'taoskeeper.exe', 'taosBenchmark.exe', 'taosdump.exe') {
+          foreach ($tool in 'taosadapter.exe', 'taosBenchmark.exe', 'taosdump.exe') {
             if (-not (Test-Path "C:\TDengine\$tool")) { throw "missing package component: $tool" }
           }
           $av = & C:\TDengine\taosadapter.exe -V 2>&1 | Out-String
           Write-Host $av
-          $kv = & C:\TDengine\taoskeeper.exe -V 2>&1 | Out-String
-          Write-Host $kv
           $proc = Start-Process -FilePath 'C:\TDengine\taosd.exe' -PassThru -WindowStyle Hidden
           $ready = $false
           for ($i = 0; $i -lt 60; $i++) {
