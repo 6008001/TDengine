@@ -179,13 +179,21 @@ jobs:
         shell: pwsh
         run: |
           $mingw = '${{ steps.mingw.outputs.mingw }}'
+          $v = '${{ steps.ver.outputs.version }}'
+          $commit = '${{ github.sha }}'
+          $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' +0000'
           $env:CGO_ENABLED = '1'
           $env:CC = "$mingw\gcc.exe"
           # The package's own #cgo windows lines point at C:/TDengine already;
           # keep PATH on the installed tree so the loader finds taosnative.dll.
           $env:Path = "C:\TDengine;C:\TDengine\driver;$env:Path"
           Push-Location taosadapter-src
-          go build -o ..\build\build\bin\taosadapter.exe .
+          # Without these -X flags taosadapter reports its source defaults
+          # (0.1.0 / git: unknown / build: unknown). BuildInfo contains a space,
+          # so keep each -X value quoted for the linker.
+          $pkg = 'github.com/taosdata/taosadapter/v3/version'
+          $ldflags = "-X $pkg.Version=$v -X $pkg.CommitID=$commit -X '$pkg.BuildInfo=$buildTime'"
+          go build -ldflags $ldflags -o ..\build\build\bin\taosadapter.exe .
           if ($LASTEXITCODE -ne 0) { throw 'taosadapter build failed' }
           Pop-Location
           # make_install.bat already ran, so place the binary in the package tree
@@ -235,14 +243,25 @@ jobs:
           $ready = $false
           for ($i = 0; $i -lt 60; $i++) {
             Start-Sleep -Seconds 2
-            $r = (& C:\TDengine\taos.exe -s 'show databases' 2>&1 | Out-String)
-            if ($r -match 'information_schema') { $ready = $true; break }
+            # mnode answers 'show databases' (information_schema) before the
+            # dnode has registered itself, and a CREATE DATABASE issued in that
+            # window fails with 'Out of dnodes' because support_vnodes is still
+            # 0. Wait for the dnode row to report 'ready' instead.
+            $r = (& C:\TDengine\taos.exe -s 'show dnodes' 2>&1 | Out-String)
+            if ($r -match '\bready\b') { $ready = $true; break }
           }
           if (-not $ready) {
+            $diag = (& C:\TDengine\taos.exe -s 'show dnodes' 2>&1 | Out-String)
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-            throw 'taosd did not become ready in time'
+            throw "taosd dnode did not become ready in time: $diag"
           }
-          $sql = (& C:\TDengine\taos.exe -s "create database if not exists smoke; use smoke; create table t1 (ts timestamp, val double); insert into t1 values (now, 1.5); select count(*) from t1;" 2>&1 | Out-String)
+          # Retry the DDL once in case another dnode transition races the check.
+          $sql = ''
+          for ($i = 0; $i -lt 3; $i++) {
+            $sql = (& C:\TDengine\taos.exe -s "create database if not exists smoke; use smoke; create table if not exists t1 (ts timestamp, val double); insert into t1 values (now, 1.5); select count(*) from t1;" 2>&1 | Out-String)
+            if ($sql -match 'Insert OK') { break }
+            Start-Sleep -Seconds 3
+          }
           Write-Host $sql
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           if ($sql -notmatch 'Insert OK') { throw "smoke SQL failed: $sql" }
