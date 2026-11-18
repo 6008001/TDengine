@@ -458,9 +458,16 @@ if(BUILD_PTHREAD)        # {
         VERBATIM
     )
     add_dependencies(build_externals ext_pthread)     # this is for github workflow in cache-miss step.
+    # Multi-config generators (Visual Studio, Xcode) put executables in
+    # ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/<CONFIG>, so the DLL must land there
+    # too — otherwise taosd/taos fail to start on the build machine with
+    # STATUS_DLL_NOT_FOUND. Keep the flat copy as well for single-config
+    # generators, which link everything straight into the flat directory.
     add_custom_target(copy_pthreadVC3 ALL
         DEPENDS ext_pthread
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_ins}/bin/${ext_pthread_dll} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${ext_pthread_dll}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_ins}/bin/${ext_pthread_dll} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>/${ext_pthread_dll}
     )
 endif()                     # }
 
