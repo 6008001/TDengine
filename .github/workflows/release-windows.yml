@@ -75,10 +75,26 @@ jobs:
           }
           "sdkdir=$sdkdir" >> $env:GITHUB_OUTPUT
 
+      - name: Detect Visual Studio generator
+        id: vs
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $ver = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion)
+          if (-not $ver) { throw 'no Visual Studio C++ toolchain found on runner' }
+          switch -Wildcard ($ver) {
+            '17*' { $gen = 'Visual Studio 17 2022' }
+            '18*' { $gen = 'Visual Studio 18 2026' }
+            '16*' { $gen = 'Visual Studio 16 2019' }
+            default { throw "unsupported VS installation version: $ver" }
+          }
+          Write-Host "VS $ver -> generator '$gen'"
+          "generator=$gen" >> $env:GITHUB_OUTPUT
+
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+          cmake -S . -B build -G "${{ steps.vs.outputs.generator }}" -A x64 `
             -DBUILD_TOOLS=ON `
             -DBUILD_PYUDF=ON `
             -DBUILD_VER_OSTYPE=windows64 `
