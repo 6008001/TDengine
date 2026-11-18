@@ -99,10 +99,31 @@ Source: {#MyAppSourceDir}\taosdump.exe; DestDir: "{app}"; DestName: "{#CusPrompt
 
 
 [run]
+; Register the Windows services. taosd needs --win_service so it dispatches
+; through the SCM; taosAdapter's service entry point is unconditional.
+; Both are installed as DEMAND (manual) start, matching make_install.bat, so a
+; fresh install does not begin serving until the user runs `sc start taosd`.
+; The client package excludes these executables, so the FileExists() guard
+; keeps it from registering services that point at missing files.
+; An existing service is re-pointed at the install directory instead of
+; failing to be created, which keeps upgrades working when it moves.
+Filename: {sys}\sc.exe; Parameters: "create taosd start= DEMAND binPath= ""{app}\taosd.exe --win_service"""; Flags: runhidden; Check: ServiceNeedsCreate('taosd')
+Filename: {sys}\sc.exe; Parameters: "config taosd binPath= ""{app}\taosd.exe --win_service"""; Flags: runhidden; Check: ServiceNeedsRepoint('taosd')
+Filename: {sys}\sc.exe; Parameters: "create taosadapter start= DEMAND binPath= ""{app}\taosadapter.exe"""; Flags: runhidden; Check: ServiceNeedsCreate('taosadapter')
+Filename: {sys}\sc.exe; Parameters: "config taosadapter binPath= ""{app}\taosadapter.exe"""; Flags: runhidden; Check: ServiceNeedsRepoint('taosadapter')
 ; ODBC registration runs only when the taos_odbc payload is present (see the
 ; commented [Files] entry above); community builds without ODBC skip it.
 ;Filename: "C:\Windows\System32\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x64"; Flags: runhidden; StatusMsg: "Configuring ODBC x64"
 ;Filename: "C:\Windows\SysWOW64\odbcconf.exe"; Parameters: "/S /F win_odbc_install.ini"; WorkingDir: "{app}\taos_odbc\x86"; Flags: runhidden; StatusMsg: "Configuring ODBC x86"
+
+[UninstallRun]
+; Stop before delete; both are ignored when the service was never created
+; (client package) or is already stopped. --win_service makes taosd answer the
+; SCM stop control, so `sc stop` actually returns.
+RunOnceId: "stoptaosd"; Filename: {sys}\sc.exe; Parameters: "stop taosd"; Flags: runhidden
+RunOnceId: "stoptaosadapter"; Filename: {sys}\sc.exe; Parameters: "stop taosadapter"; Flags: runhidden
+RunOnceId: "deltaosd"; Filename: {sys}\sc.exe; Parameters: "delete taosd"; Flags: runhidden
+RunOnceId: "deltaosadapter"; Filename: {sys}\sc.exe; Parameters: "delete taosadapter"; Flags: runhidden
 
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \
@@ -138,6 +159,35 @@ begin
   { look for the path with leading and trailing semicolon }
   { Pos() returns 0 if not found }
   Result := Pos(';' + Param + ';', ';' + OrigPath + ';') = 0;
+end;
+
+{ Windows service helpers. The client package ships without taosd.exe and
+  taosadapter.exe, so every registration is gated on the executable being
+  present in the install directory. }
+
+function ServiceExists(Name: String): Boolean;
+var
+  DisplayName: String;
+begin
+  Result := RegQueryStringValue(HKLM, 'SYSTEM\CurrentControlSet\Services\' + Name, 'DisplayName', DisplayName);
+end;
+
+function ServiceNeedsCreate(Name: String): Boolean;
+var
+  Exe: String;
+begin
+  if Name = 'taosd' then
+    Exe := ExpandConstant('{app}\taosd.exe')
+  else
+    Exe := ExpandConstant('{app}\taosadapter.exe');
+  Result := FileExists(Exe) and (not ServiceExists(Name));
+end;
+
+function ServiceNeedsRepoint(Name: String): Boolean;
+begin
+  { create ran above when the exe is present; config is only needed when the
+    service survived from an earlier installation at a different directory. }
+  Result := FileExists(ExpandConstant('{app}\' + Name + '.exe')) and ServiceExists(Name);
 end;
 
 function RemovePath(Param: string): Boolean;
