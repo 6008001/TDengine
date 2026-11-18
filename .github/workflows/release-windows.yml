@@ -51,13 +51,17 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup mingw -y --no-progress
-          $mingw = "$env:ChocolateyInstall\lib\mingw\tools\install\mingw64\bin"
-          if (-not (Test-Path "$mingw\gcc.exe")) {
-            $mingw = (Get-ChildItem "$env:ChocolateyInstall\lib\mingw\tools\install" -Directory |
-                      Select-Object -First 1).FullName + '\mingw64\bin'
+          # choco's mingw package deploys to C:\ProgramData\mingw64\mingw64;
+          # fall back to a recursive search inside the chocolatey lib tree.
+          $gcc = @('C:\ProgramData\mingw64\mingw64\bin\gcc.exe',
+                   "$env:ChocolateyInstall\lib\mingw\tools\install\mingw64\bin\gcc.exe") |
+                   Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $gcc) {
+            $gcc = (Get-ChildItem "$env:ChocolateyInstall\lib\mingw" -Recurse -Filter gcc.exe -ErrorAction SilentlyContinue |
+                    Select-Object -First 1).FullName
           }
-          if (-not (Test-Path "$mingw\gcc.exe")) { throw 'mingw gcc.exe not found' }
-          "mingw=$mingw" >> $env:GITHUB_OUTPUT
+          if (-not $gcc) { throw 'mingw gcc.exe not found' }
+          "mingw=$(Split-Path $gcc)" >> $env:GITHUB_OUTPUT
 
       - name: Locate Windows SDK um\x64 lib dir
         id: sdk
